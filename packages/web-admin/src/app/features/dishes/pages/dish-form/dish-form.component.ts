@@ -1,4 +1,4 @@
-import { Component, inject, OnInit, signal } from '@angular/core'
+import { Component, computed, inject, OnInit, signal } from '@angular/core'
 import { FormsModule } from '@angular/forms'
 import { ActivatedRoute, Router, RouterLink } from '@angular/router'
 import { LucideAngularModule } from 'lucide-angular'
@@ -30,14 +30,26 @@ export class DishFormComponent implements OnInit {
 
   categories: DishCategory[] = ['entrante', 'principal', 'postre', 'bebida']
 
-  form: CreateDishDto = {
+  form: Omit<CreateDishDto, 'price'> & { price: number | null } = {
     name: '',
     description: null,
-    price: 0,
+    price: null,
     category: 'principal',
     available: true,
     ingredients: []
   }
+
+  fieldErrors = signal<{ name?: string; price?: string }>({})
+  liveMessage = signal('')
+  private submitted = false
+
+  readonly errorList = computed(() => {
+    const e = this.fieldErrors()
+    const list: { field: string; message: string }[] = []
+    if (e.name) list.push({ field: 'dish-name', message: e.name })
+    if (e.price) list.push({ field: 'dish-price', message: e.price })
+    return list
+  })
 
   newIngredientId = ''
   newIngredientQty = 1
@@ -103,11 +115,13 @@ export class DishFormComponent implements OnInit {
       ...this.form.ingredients,
       { ingredientId: this.newIngredientId, quantity: this.newIngredientQty }
     ]
+    this.liveMessage.set(`${this.getIngredientName(this.newIngredientId)} añadido.`)
     this.newIngredientId = ''
     this.newIngredientQty = 1
   }
 
   removeIngredient(ingredientId: string): void {
+    this.liveMessage.set(`${this.getIngredientName(ingredientId)} quitado.`)
     this.form.ingredients = this.form.ingredients.filter(i => i.ingredientId !== ingredientId)
   }
 
@@ -116,14 +130,43 @@ export class DishFormComponent implements OnInit {
     return ingredient ? `${ingredient.name} (${ingredient.unit})` : ingredientId
   }
 
+  private validate(): boolean {
+    const errors: { name?: string; price?: string } = {}
+    if (!this.form.name || this.form.name.trim() === '') {
+      errors.name = 'El nombre del plato es obligatorio.'
+    }
+    if (this.form.price === null || this.form.price === undefined || !(this.form.price > 0)) {
+      errors.price = 'El precio es obligatorio y debe ser mayor que 0.'
+    }
+    this.fieldErrors.set(errors)
+    return Object.keys(errors).length === 0
+  }
+
+  /** Tras un primer intento de envío, los errores se actualizan mientras se escribe. */
+  revalidate(): void {
+    if (this.submitted) this.validate()
+  }
+
+  focusField(event: Event, fieldId: string): void {
+    event.preventDefault()
+    document.getElementById(fieldId)?.focus()
+  }
+
   async onSubmit(): Promise<void> {
     this.error.set(null)
+    this.submitted = true
+    if (!this.validate()) {
+      // Mueve el foco al primer campo con error (WCAG 3.3.1 / 3.3.3)
+      document.getElementById(this.errorList()[0].field)?.focus()
+      return
+    }
     this.loading.set(true)
     try {
+      const dto = this.form as CreateDishDto
       if (this.isEditing && this.dishId) {
-        await this.store.update(this.restaurantId, this.dishId, this.form)
+        await this.store.update(this.restaurantId, this.dishId, dto)
       } else {
-        await this.store.create(this.restaurantId, this.form)
+        await this.store.create(this.restaurantId, dto)
       }
       this.router.navigate(['/restaurants', this.restaurantId, 'dishes'])
     } catch (err: any) {

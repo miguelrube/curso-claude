@@ -42,14 +42,24 @@ textarea.form-control {
   border-top: 1px solid var(--border-color);
 }
 
-.ingredients-section h3 {
+.ingredients-section {
+  border-left: 0;
+  border-right: 0;
+  border-bottom: 0;
+  min-width: 0;
+}
+
+.ingredients-section legend {
   font-size: 14px;
   font-weight: 600;
   color: var(--text-primary);
+  padding: 0 8px 0 0;
   margin-bottom: 14px;
 }
 
 .ingredient-chips {
+  list-style: none;
+  padding: 0;
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
@@ -70,7 +80,7 @@ textarea.form-control {
 
 .chip-remove {
   background: transparent;
-  color: var(--text-muted);
+  color: var(--text-secondary);
   padding: 2px;
   border-radius: 50%;
   transition: all var(--transition);
@@ -88,8 +98,12 @@ textarea.form-control {
   align-items: flex-end;
 }
 
-.add-ingredient-row select {
+.add-ingredient-row .grow {
   flex: 1;
+}
+
+.add-ingredient-row .btn {
+  white-space: nowrap;
 }
 
 .qty-input {
@@ -113,23 +127,44 @@ select.form-control {
   padding-right: 32px;
 }
 
-.fake-title {
-  font-size: 22px;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.fake-label {
-  font-size: 13px;
-  font-weight: 500;
+.form-control::placeholder {
   color: var(--text-secondary);
 }
 
-.fake-subtitle {
-  font-size: 14px;
+.required-note {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-bottom: 16px;
+}
+
+.required-mark {
+  color: #f87171;
+}
+
+.form-control.invalid {
+  border-color: #f87171;
+}
+
+.field-error {
+  font-size: 13px;
+  color: #f87171;
+}
+
+.error-summary-title {
   font-weight: 600;
-  color: var(--text-primary);
-  margin-bottom: 14px;
+}
+
+.alert-error {
+  color: #fca5a5;
+}
+
+.alert-error ul {
+  margin: 8px 0 0 20px;
+}
+
+.alert-error a {
+  color: #fca5a5;
+  text-decoration: underline;
 }
 
 .btn, .chip-remove {
