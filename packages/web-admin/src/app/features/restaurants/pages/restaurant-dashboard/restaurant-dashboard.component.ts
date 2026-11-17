@@ -1,4 +1,5 @@
-import { Component, inject, OnInit, signal } from '@angular/core'
+import { Component, DestroyRef, inject, OnInit, signal } from '@angular/core'
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop'
 import { ActivatedRoute, RouterLink } from '@angular/router'
 import { LucideAngularModule } from 'lucide-angular'
 import { RestaurantStore } from '../../store/restaurant.store'
@@ -17,9 +18,15 @@ export class RestaurantDashboardComponent implements OnInit {
   restaurantId = ''
   restaurantName = signal('')
 
+  private readonly destroyRef = inject(DestroyRef)
+
   ngOnInit(): void {
-    this.restaurantId = this.route.parent?.snapshot.params['restaurantId'] ?? ''
-    const restaurant = this.restaurantStore.getById(this.restaurantId)
-    this.restaurantName.set(restaurant?.name ?? 'Restaurante')
+    this.route.parent?.params
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(params => {
+        this.restaurantId = params['restaurantId'] ?? ''
+        const restaurant = this.restaurantStore.getById(this.restaurantId)
+        this.restaurantName.set(restaurant?.name ?? 'Restaurante')
+      })
   }
 }
