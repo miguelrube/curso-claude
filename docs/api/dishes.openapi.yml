@@ -1,0 +1,377 @@
+openapi: 3.0.3
+info:
+  title: Resttek API - Platos
+  version: 1.0.0
+  description: |
+    Endpoints de gestión de platos de un restaurante (más el listado público de platos disponibles).
+
+    **Comportamientos peculiares (documentados tal como son en el código):**
+    - El `errorHandler` decide el código HTTP por el nombre de la clase de error: `DishNotFoundError` -> 404; el resto de `AppError` (nombre vacío, precio no positivo, categoría inválida) -> 400; cualquier otro error -> 500.
+    - Un ingrediente de la receta con `ingredientId` vacío o `quantity <= 0` lanza un `Error` plano (no `AppError`), por lo que responde **500** y no 400.
+    - Si falta `category` (o no es string) se produce un error no controlado (500). Un `price` ausente no se rechaza en el servicio (la comparación `undefined <= 0` es falsa).
+    - El `restaurantId` de la ruta no se valida contra la tabla de restaurantes y `GET/PUT/DELETE /{id}` no comprueban que el plato pertenezca al restaurante de la ruta: solo usan `id`.
+    - `PUT` es un reemplazo completo: `description` y `ingredients` ausentes se guardan como `null` y `[]`; `available` ausente no se rellena con valor por defecto.
+    - Los errores 401/403 de los middlewares tienen cuerpo `{ "error": "<texto>" }` (sin campo `message`), distinto del formato del `errorHandler`.
+    - Los ingredientes de la receta no se comprueban contra la tabla de ingredientes.
+servers:
+  - url: http://localhost:3000/api/v1
+    description: Servidor local de desarrollo
+tags:
+  - name: Platos
+    description: CRUD de platos (requiere JWT y rol).
+  - name: Platos públicos
+    description: Carta pública sin autenticación.
+paths:
+  /public/restaurants/{restaurantId}/dishes:
+    get:
+      tags: [Platos públicos]
+      operationId: listPublicDishes
+      summary: Lista los platos disponibles de un restaurante (público)
+      description: Devuelve solo los platos con `available = true`. No requiere autenticación. Si el restaurante no existe devuelve `[]`.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/RestaurantId'
+      responses:
+        '200':
+          description: Platos disponibles.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Dish'
+              example:
+                - id: 3f1c2a52-8a43-4c1e-9d5b-0a7f3f0c1111
+                  name: Tortilla de patatas
+                  description: Con cebolla
+                  price: 8.5
+                  category: entrante
+                  available: true
+                  restaurantId: 7d0e5c1a-1b2c-4d3e-8f90-123456789abc
+                  ingredients:
+                    - ingredientId: a1b2c3d4-0000-4000-8000-000000000001
+                      quantity: 0.3
+                  createdAt: '2026-01-10T10:00:00.000Z'
+                  updatedAt: '2026-01-10T10:00:00.000Z'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /restaurants/{restaurantId}/dishes:
+    post:
+      tags: [Platos]
+      operationId: createDish
+      summary: Crea un plato
+      description: |
+        Roles permitidos: `admin`, `manager`.
+        Validaciones: `name` no vacío, `price > 0`, `category` en el enum (se normaliza a minúsculas y sin espacios). `available` por defecto `true`, `description` por defecto `null`, `ingredients` por defecto `[]`.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/RestaurantId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DishInput'
+            examples:
+              completo:
+                value:
+                  name: Paella valenciana
+                  description: Arroz con pollo y conejo
+                  price: 14.9
+                  category: principal
+                  available: true
+                  ingredients:
+                    - ingredientId: a1b2c3d4-0000-4000-8000-000000000001
+                      quantity: 0.25
+              minimo:
+                value:
+                  name: Agua
+                  price: 1.5
+                  category: bebida
+      responses:
+        '201':
+          description: Plato creado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Dish'
+        '400':
+          description: Validación fallida (`DishNameRequiredError`, `InvalidPriceError`, `InvalidCategoryError`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                precio:
+                  value: { error: InvalidPriceError, message: Price must be a positive number }
+                categoria:
+                  value: { error: InvalidCategoryError, message: 'Invalid category: postres. Must be one of: entrante, principal, postre, bebida' }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          description: Error interno. También se produce (en vez de 400) si un ingrediente de la receta tiene `ingredientId` vacío o `quantity <= 0`, o si falta `category`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example: { error: InternalServerError, message: Something went wrong }
+    get:
+      tags: [Platos]
+      operationId: listDishes
+      summary: Lista todos los platos de un restaurante
+      description: 'Roles permitidos: `admin`, `manager`, `camarero`, `cocinero`. Incluye platos no disponibles.'
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/RestaurantId'
+      responses:
+        '200':
+          description: Lista de platos (puede ser vacía).
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Dish'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /restaurants/{restaurantId}/dishes/{id}:
+    parameters:
+      - $ref: '#/components/parameters/RestaurantId'
+      - $ref: '#/components/parameters/DishId'
+    get:
+      tags: [Platos]
+      operationId: getDish
+      summary: Obtiene un plato por id
+      description: 'Roles permitidos: `admin`, `manager`, `camarero`, `cocinero`. Solo se usa `id`; no se comprueba que pertenezca a `restaurantId`.'
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Plato encontrado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Dish'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/DishNotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    put:
+      tags: [Platos]
+      operationId: updateDish
+      summary: Actualiza (reemplaza) un plato
+      description: |
+        Roles permitidos: `admin`, `manager`. Reemplazo completo: `description` y `ingredients` ausentes se guardan como `null` / `[]`.
+        El restaurante del plato no cambia. Mismas validaciones que en la creación.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DishInput'
+            example:
+              name: Paella valenciana
+              description: Receta tradicional
+              price: 15.5
+              category: principal
+              available: false
+              ingredients: []
+      responses:
+        '200':
+          description: Plato actualizado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Dish'
+        '400':
+          description: Validación fallida (`DishNameRequiredError`, `InvalidPriceError`, `InvalidCategoryError`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/DishNotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    delete:
+      tags: [Platos]
+      operationId: deleteDish
+      summary: Elimina un plato
+      description: 'Roles permitidos: `admin`, `manager`.'
+      security:
+        - bearerAuth: []
+      responses:
+        '204':
+          description: Plato eliminado (sin cuerpo).
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/DishNotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT obtenido en `/auth/login`. El payload debe incluir `role`.
+  parameters:
+    RestaurantId:
+      name: restaurantId
+      in: path
+      required: true
+      description: Identificador del restaurante.
+      schema:
+        type: string
+        format: uuid
+    DishId:
+      name: id
+      in: path
+      required: true
+      description: Identificador del plato.
+      schema:
+        type: string
+        format: uuid
+  schemas:
+    DishCategory:
+      type: string
+      description: Categoría del plato. La entrada se normaliza (minúsculas, sin espacios laterales).
+      enum: [entrante, principal, postre, bebida]
+    DishIngredient:
+      type: object
+      required: [ingredientId, quantity]
+      properties:
+        ingredientId:
+          type: string
+          description: Id del ingrediente (no vacío; no se verifica su existencia).
+        quantity:
+          type: number
+          minimum: 0
+          exclusiveMinimum: true
+          description: Cantidad necesaria, mayor que 0.
+    DishInput:
+      type: object
+      required: [name, price, category]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          description: Nombre no vacío (ni solo espacios).
+        description:
+          type: string
+          nullable: true
+        price:
+          type: number
+          minimum: 0
+          exclusiveMinimum: true
+          description: Precio mayor que 0.
+        category:
+          $ref: '#/components/schemas/DishCategory'
+        available:
+          type: boolean
+          default: true
+          description: En la creación por defecto `true`.
+        ingredients:
+          type: array
+          default: []
+          items:
+            $ref: '#/components/schemas/DishIngredient'
+    Dish:
+      type: object
+      required: [id, name, description, price, category, available, restaurantId, ingredients, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+          nullable: true
+        price:
+          type: number
+        category:
+          $ref: '#/components/schemas/DishCategory'
+        available:
+          type: boolean
+        restaurantId:
+          type: string
+        ingredients:
+          type: array
+          items:
+            $ref: '#/components/schemas/DishIngredient'
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    Error:
+      type: object
+      description: Formato del `errorHandler`.
+      properties:
+        error:
+          type: string
+          description: Nombre de la clase de error.
+        message:
+          type: string
+    AuthError:
+      type: object
+      description: Formato de los middlewares `authenticate`/`authorize` (sin `message`).
+      properties:
+        error:
+          type: string
+  responses:
+    Unauthorized:
+      description: Token ausente, malformado o inválido.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/AuthError'
+          examples:
+            sinToken:
+              value: { error: 'Unauthorized: No token provided' }
+            invalido:
+              value: { error: 'Unauthorized: Invalid token' }
+    Forbidden:
+      description: El rol del usuario no está permitido para esta operación.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/AuthError'
+          example: { error: 'Forbidden: Insufficient permissions' }
+    DishNotFound:
+      description: Plato no encontrado (`DishNotFoundError`).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example: { error: DishNotFoundError, message: Dish not found }
+    InternalError:
+      description: Error interno.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example: { error: InternalServerError, message: Something went wrong }
